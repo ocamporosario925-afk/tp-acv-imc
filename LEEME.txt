@@ -1,0 +1,5 @@
+Cómo abrir la app del TP2
+1) pip install -r requirements.txt
+2) Poner esta carpeta como ubicación de la terminal
+3) streamlit run app_tp2.py
+Se abre en el navegador (localhost:8501). Tarda unos segundos la primera vez porque entrena los modelos.
