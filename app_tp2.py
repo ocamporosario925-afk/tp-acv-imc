@@ -54,6 +54,25 @@ def entrenar():
     return modelos, pd.DataFrame(filas).set_index("modelo"), X_pru, y_pru, d, pd.DataFrame(comp).set_index("modelo")
 
 
+@st.cache_resource
+def preliminar():
+    """Prueba preliminar: ¿qué variable se puede predecir mejor, el IMC o la glucosa?"""
+    d0 = pd.read_csv("healthcare-dataset-stroke-data.csv").drop(columns="id")
+    d0 = d0[d0["gender"] != "Other"]
+    res = {}
+    for objetivo in ["bmi", "avg_glucose_level"]:
+        dd = d0.dropna(subset=[objetivo])
+        X, y = dd.drop(columns=objetivo), dd[objetivo]
+        num = [c for c in X.columns if c not in CATEGORICAS]
+        Xe, Xp, ye, yp = train_test_split(X, y, test_size=0.20, random_state=42)
+        for nombre, m in [("Regresión lineal", LinearRegression()),
+                          ("Bosque aleatorio", RandomForestRegressor(n_estimators=300, min_samples_leaf=10, random_state=42, n_jobs=-1))]:
+            pre = make_column_transformer((make_pipeline(SimpleImputer(strategy="median"), StandardScaler()), num),
+                                          (OneHotEncoder(handle_unknown="ignore"), CATEGORICAS))
+            res[(objetivo, nombre)] = r2_score(yp, make_pipeline(pre, m).fit(Xe, ye).predict(Xp))
+    return res
+
+
 modelos, tabla, X_pru, y_pru, datos, comp = entrenar()
 st.title("¿Cuál es el IMC de este paciente?")
 st.caption("Regresión (TP2): el modelo estima el IMC a partir de las demás columnas. Se entrena con el 80 % de los pacientes y se mide con el 20 % que no vio.")
@@ -77,7 +96,7 @@ paciente = pd.DataFrame([{"age": edad, "hypertension": int(hta), "heart_disease"
 pred = {n: float(m.predict(paciente)[0]) for n, m in modelos.items()}
 rmse = tabla.loc[elegido, "RMSE (prueba)"]
 
-tab_p, tab_c, tab_pr, tab_et, tab_n = st.tabs(["Paciente", "Correlación", "Predicho vs real", "Entrenamiento vs prueba", "Pacientes nuevos (A a H)"])
+tab_p, tab_c, tab_pre, tab_pr, tab_et, tab_n = st.tabs(["Paciente", "Correlación", "Prueba preliminar", "Predicho vs real", "Entrenamiento vs prueba", "Pacientes nuevos (A a H)"])
 with tab_p:
     c1, c2 = st.columns([1, 1.3])
     with c1:
@@ -170,3 +189,17 @@ with tab_n:
     plt.tight_layout(); st.pyplot(fig6)
     st.dataframe(est.round(1))
     st.caption("Las letras son los perfiles de la tabla. Los modelos coinciden entre sí, pero el error típico es de unos 7 puntos de IMC: cada barra es una estimación aproximada. Los pacientes son inventados, no tienen un IMC real con el cual comparar.")
+
+with tab_pre:
+    st.subheader("Prueba preliminar: ¿por qué elegimos el IMC como variable a estimar?")
+    rp = preliminar()
+    fig7, a7 = plt.subplots(figsize=(8, 4.6)); w = 0.35; xs = np.arange(2)
+    for i, (n, c) in enumerate([("Regresión lineal", "#0055a5"), ("Bosque aleatorio", "#2e8b57")]):
+        v = [rp[("bmi", n)], rp[("avg_glucose_level", n)]]
+        bb = a7.bar(xs + (i - 0.5) * w, v, w, label=n, color=c)
+        for r in bb: a7.text(r.get_x() + r.get_width() / 2, r.get_height() + 0.008, f"{r.get_height():.2f}".replace(".", ","), ha="center", fontsize=11)
+    a7.set_xticks(xs); a7.set_xticklabels(["IMC (bmi)", "Glucosa"], fontsize=12); a7.set_ylabel("R² en prueba"); a7.set_ylim(0, max(rp.values()) * 1.25); a7.legend()
+    plt.tight_layout(); st.pyplot(fig7)
+    st.write("Antes de elegir, probamos predecir dos variables continuas con una regresión lineal y un bosque. El **IMC** dio un R² de %s a %s y la **glucosa** solo %s a %s: las demás columnas casi no explican la glucosa. Por eso elegimos el IMC."
+             % tuple(f"{x:.2f}".replace(".", ",") for x in (rp[("bmi", "Regresión lineal")], rp[("bmi", "Bosque aleatorio")], rp[("avg_glucose_level", "Bosque aleatorio")], rp[("avg_glucose_level", "Regresión lineal")])))
+    st.caption("R² = qué parte de la variación explica el modelo (0 = lo mismo que adivinar el promedio, 1 = perfecto). Es una prueba rápida, previa a los resultados finales del TP2.")
